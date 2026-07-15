@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equity Yield Strategy Stress Tester — v1.2-factor-model</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d3646;
+    --text:#e6edf3; --muted:#8b98a9;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:24px; max-width:1400px; margin:0 auto;}
+  h1{font-size:22px; margin-bottom:4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:10px;}
+  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;border:1px solid var(--border);margin-left:8px;}
+  .badge.ok{color:#3fb950;border-color:#3fb950;} .badge.bad{color:#f78166;border-color:#f78166;}
+  .warnbox{background:#2d2410; border:1px solid #d29922; border-radius:8px; padding:10px 14px; font-size:12px; color:#e3b341; line-height:1.6; margin-bottom:18px;}
+  .layout{display:grid; grid-template-columns:300px 1fr; gap:20px;}
+  @media(max-width:950px){.layout{grid-template-columns:1fr;}}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px;}
+  .ctl{margin-bottom:16px;}
+  .ctl label{display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px; color:var(--muted);}
+  .ctl label b{color:var(--text); font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%; accent-color:#58a6ff;}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12.5px;width:100%;}
+  button{background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; font-size:13px; width:100%;}
+  button:hover{border-color:#58a6ff;}
+  details{margin-top:14px;}
+  summary{cursor:pointer; font-size:13px; color:var(--muted); margin-bottom:10px;}
+  .adv .ctl{margin-bottom:12px;}
+  table{width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums;}
+  th{text-align:right; color:var(--muted); font-weight:600; padding:6px 6px; border-bottom:1px solid var(--border); white-space:nowrap;}
+  th:first-child,td:first-child{text-align:left;}
+  td{text-align:right; padding:5px 6px; border-bottom:1px solid #1c2330; white-space:nowrap;}
+  tr:hover td{background:#1c2330;}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;}
+  .q{display:inline-block;width:16px;text-align:center;border-radius:4px;font-size:10px;font-weight:700;cursor:help;}
+  .qH{background:#1a3a1a;color:#3fb950;} .qM{background:#2d2410;color:#d29922;}
+  .qL{background:#3a2020;color:#f78166;} .qD{background:#3a1030;color:#ff9bce;}
+  .pos{color:#3fb950;} .neg{color:#f78166;} .warn{color:#d29922;}
+  .tablebox,.chartbox{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:20px; overflow-x:auto;}
+  .chartbox h3,.tablebox h3{font-size:14px; margin-bottom:12px; color:var(--muted);}
+  .chartwrap{position:relative; height:340px;}
+  .note{font-size:12px; color:var(--muted); line-height:1.55; margin-top:8px;}
+  #stratToggles{display:flex; flex-direction:column; gap:4px; margin-top:8px;}
+  #stratToggles label{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text); cursor:pointer; margin:0;}
+  #stratToggles input{accent-color:#58a6ff; margin:0;}
+  .sel-links{font-size:12px; color:var(--muted);}
+  .sel-links a{color:#58a6ff; cursor:pointer; text-decoration:none;}
+  .prov td{font-size:11px;color:var(--muted);}
+</style>
+</head>
+<body>
+<h1>Equity Yield Strategy Stress Tester <span class="badge" id="verBadge"></span><span class="badge" id="testBadge"></span></h1>
+<div class="sub">Stylised scenario models — NOT fund forecasts. "-like" names are stylised approximations of the named fund's mandate.</div>
+
+<div class="warnbox" id="warnbox"></div>
+
+<div class="layout">
+  <div class="panel">
+    <div class="ctl">
+      <label>US index annual total return <b id="vRet"></b></label>
+      <input type="range" id="ret" min="-60" max="60" step="1" value="-20">
+    </div>
+    <div class="ctl">
+      <label>US volatility (annualized) <b id="vVol"></b></label>
+      <input type="range" id="vol" min="8" max="60" step="1" value="20">
+    </div>
+    <div class="ctl">
+      <label>Horizon <b id="vYrs"></b></label>
+      <input type="range" id="yrs" min="1" max="10" step="1" value="3">
+    </div>
+    <div class="ctl">
+      <label>Investment <b id="vInv"></b></label>
+      <input type="range" id="inv" min="1000" max="1000000" step="1000" value="10000">
+    </div>
+    <div class="ctl">
+      <label>Reporting currency</label>
+      <select id="ccy">
+        <option value="USD">USD</option>
+        <option value="AUD">AUD (unhedged — FX factor applied)</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <label>Wealth view</label>
+      <select id="view">
+        <option value="reinv">Reinvested wealth (risk metrics basis)</option>
+        <option value="consumed">NAV + consumed cash (no interest)</option>
+        <option value="cashacct">NAV + cash account (earns cash rate)</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <label>Scenario</label>
+      <select id="scenario">
+        <option value="sequence">Sequence stress — re-roll timing, same terminal CAGR</option>
+        <option value="central">Central — smooth monthly compounding (structural)</option>
+        <option value="distribution">Outcome distribution — Monte Carlo</option>
+      </select>
+    </div>
+    <button id="reroll">🎲 Re-roll return sequence — same terminal CAGR</button>
+    <div class="note" id="scenNote"></div>
+    <div class="ctl" id="mcCtls" style="display:none;">
+      <label>Monte Carlo paths <b id="vMcN"></b></label>
+      <input type="range" id="mcN" min="2000" max="10000" step="1000" value="4000">
+      <label style="margin-top:12px;">Distribution target (single portfolio)</label>
+      <select id="mcTarget"></select>
+    </div>
+
+    <details class="adv" open>
+      <summary>Strategies <span class="sel-links">(<a id="selAll">all</a> · <a id="selNone">none</a>)</span></summary>
+      <div id="stratToggles"></div>
+    </details>
+
+    <details class="adv" open>
+      <summary>🇦🇺 Illustrative Australian tax proxy</summary>
+      <div class="ctl" style="display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" id="taxOn" style="accent-color:#58a6ff;">
+        <span style="font-size:13px;">Apply tax proxy</span>
+      </div>
+      <div class="ctl"><label>Marginal tax rate (incl. Medicare) <b id="vM"></b></label><input type="range" id="marg" min="0" max="47" step="0.5" value="39"></div>
+      <div class="note"><b>Not tax advice and not a final AMIT/foreign-fund classification.</b> FITO as max(marginal,15%); US ROC estimates mapped to AU cost-base reductions (unvalidated); CGT discount by month index, not parcel-aware; tax computed in reporting currency without separate FX translation of cost base (D7 pending). Applies to consumed-cash view only.</div>
+    </details>
+
+    <details class="adv">
+      <summary>Advanced assumptions</summary>
+      <div class="ctl"><label>Implied vol premium over realized <b id="vIvp"></b></label><input type="range" id="ivp" min="0" max="8" step="0.5" value="2"></div>
+      <div class="ctl"><label>Cash / T-bill rate <b id="vRf"></b></label><input type="range" id="rf" min="0" max="8" step="0.25" value="4"></div>
+      <div class="ctl"><label>US index dividend yield <b id="vDy"></b></label><input type="range" id="divY" min="0" max="4" step="0.1" value="1.3"></div>
+      <div class="ctl"><label>Downside put skew (pts / 1% moneyness) <b id="vDsk"></b></label><input type="range" id="dskew" min="0" max="1.5" step="0.05" value="0.5"></div>
+      <div class="ctl"><label>Upside call slope <b id="vUsk"></b></label><input type="range" id="uskew" min="-0.5" max="0.5" step="0.05" value="-0.2"></div>
+      <div class="ctl"><label>Option half-spread (% of premium) <b id="vTc"></b></label><input type="range" id="tc" min="0" max="8" step="0.5" value="2"></div>
+      <div class="ctl"><label>GPIX-like distribution target <b id="vGd"></b></label><input type="range" id="gDist" min="4" max="14" step="0.5" value="8"></div>
+      <div class="ctl"><label>TPAY-like / index-withdrawal rate <b id="vTd"></b></label><input type="range" id="tDist" min="4" max="16" step="0.5" value="10"></div>
+      <div class="ctl"><label>SPYH-like monthly upside cap <b id="vSc"></b></label><input type="range" id="sCap" min="0.5" max="3" step="0.1" value="1.3"></div>
+      <div class="ctl"><label>SPYH-like put protection starts <b id="vSp"></b></label><input type="range" id="sPut" min="0.5" max="4" step="0.25" value="1.5"></div>
+      <div class="ctl"><label>SPYH-like protection depth <b id="vSw"></b></label><input type="range" id="sWid" min="2" max="10" step="0.5" value="5.5"></div>
+    </details>
+  </div>
+
+  <div>
+    <div class="tablebox">
+      <h3 id="tblTitle"></h3>
+      <table id="tbl"></table>
+      <div class="note">Model quality: <span class="q qH">H</span> high · <span class="q qM">M</span> moderate · <span class="q qL">L</span> low · <span class="q qD">D</span> directional-only (not optimisation-eligible). Hover chips for the primary limitation. <b>All risk metrics — Vol, β, Sortino and the primary "Max DD" — are computed on the reinvested (distribution-adjusted) series</b>, so a high payout cannot flatter risk by quietly converting the position into zero-volatility cash. <b>Cap-DD ⁽²⁾</b> is the secondary capital-account (NAV) drawdown; it includes payout decay and is <b>not comparable across payout policies</b>. β (reinv) is market beta vs the US equity factor.</div>
+    </div>
+    <div class="chartbox">
+      <h3 id="chart1Title"></h3>
+      <div class="chartwrap"><canvas id="navChart"></canvas></div>
+    </div>
+    <div class="chartbox" id="incBox">
+      <h3>Monthly cash distributions — % of initial investment (consumed-cash ledger)</h3>
+      <div class="chartwrap"><canvas id="incChart"></canvas></div>
+    </div>
+    <details class="tablebox">
+      <summary style="font-size:14px;color:var(--muted);">Parameter provenance (every judgment parameter, classified)</summary>
+      <table class="prov" id="provTbl"></table>
+    </details>
+    <div class="note" id="modelNote"></div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   MODEL v1.2-factor-model  (changelog)
+   v0.9  baseline (preserved separately)
+   v1.0  drift modes, price/div split, BS(rf,q), 3 accounting views,
+         eligibility flags, warnings, self-tests
+   v1.1  IV surface (term+skew), option transaction costs, WTPI strike
+         solver, haircut decomposition, XDTE edge from premium-vs-fair
+   v1.2  Deliverable 6 — factor model:
+     - correlated factor world: intl / EM / ASX equity, AUD/USD, Treasury
+       yield change, credit-spread change; stressed-state amplification
+     - excess-return equations: rf + β·(factor − rf) + residual (alpha=0)
+     - residual risk on every equity book (was: zero)
+     - synthetic single-name baskets for DIVO/IDVO/QDVO overlays: premium
+       priced at NAME vol, settled on simulated NAME returns → the
+       dispersion premium EMERGES; artificial IV-uplift alpha REMOVED
+     - JEPI-like ELN overlay now index-priced (no uplift)
+     - preferreds: carry − duration·Δy − spreadDur·Δs + β·equity + residual
+       − financing; 2022-style rate shocks now representable
+     - AUD reporting mode: unhedged FX applied per-sleeve by denomination
+     - eligibility upgrades: single-name sleeves and preferreds L (eligible);
+       XDTE remains D/ineligible
+   ===================================================================== */
+const MODEL_VERSION='v1.2-factor-model';
+
+/* ---------- parameter registry ---------- */
+const PARAMS={
+  US_WHT:        {v:0.15,  cls:'DOCUMENTED_RULE',       note:'US-AU treaty dividend withholding'},
+  WTPI_TARGET:   {v:0.025, cls:'DOCUMENTED_RULE',       note:'WTPI ~2.5%/mo premium target (strike solved numerically)'},
+  WTPI_RESID:    {v:0.0025,cls:'CALIBRATED',            note:'residual drag after explicit tc+skew; in-sample vs CBOE PUT — NOT validated out-of-sample'},
+  XDTE_OVERNIGHT:{v:0.5,   cls:'UNVERIFIED_ASSUMPTION', note:'overnight share of monthly return'},
+  XDTE_CAP:      {v:0.01,  cls:'UNVERIFIED_ASSUMPTION', note:'monthly intraday capture cap'},
+  XDTE_GAP_COST: {v:0.02,  cls:'UNVERIFIED_ASSUMPTION', note:'vol pts added to fair value of sold 0DTE calls (gap/discreteness)'},
+  TERM_SLOPE:    {v:-0.02, cls:'STYLISED_PROXY',        note:'IV term structure: iv += slope·(√(12T)−1)'},
+  SKEW_DOWN:     {v:0.5,   cls:'EMPIRICALLY_ESTIMATED', note:'~0.5 vol pt per 1% below forward (typical SPX); slider'},
+  SKEW_UP:       {v:-0.2,  cls:'EMPIRICALLY_ESTIMATED', note:'calls above forward slightly cheaper; slider'},
+  OPT_TC:        {v:0.02,  cls:'USER_INPUT',            note:'option half-spread % of premium, both sides'},
+  RHO_INTL:      {v:0.85,  cls:'EMPIRICALLY_ESTIMATED', note:'intl developed equity correlation to US'},
+  RHO_EM:        {v:0.75,  cls:'EMPIRICALLY_ESTIMATED', note:'EM equity correlation to US'},
+  RHO_ASX:       {v:0.75,  cls:'EMPIRICALLY_ESTIMATED', note:'ASX correlation to US'},
+  VOLRATIO:      {v:'intl .95 / EM 1.25 / ASX .95',cls:'EMPIRICALLY_ESTIMATED',note:'factor vol as ratio of US vol (regime propagates)'},
+  FACTOR_DRIFT:  {v:'same as US',cls:'STYLISED_PROXY',  note:'all equity factors share the US log drift — no relative-return view taken'},
+  FX_BETA:       {v:-0.30, cls:'EMPIRICALLY_ESTIMATED', note:'AUD equity beta: USD (in AUD) rises when US equities fall'},
+  FX_RESID:      {v:0.05,  cls:'EMPIRICALLY_ESTIMATED', note:'AUD/USD residual vol (annualized), no carry/drift'},
+  RATE_VOL:      {v:0.0025,cls:'EMPIRICALLY_ESTIMATED', note:'monthly Treasury yield-change sd (25bp)'},
+  RATE_RHO:      {v:-0.2,  cls:'STYLISED_PROXY',        note:'yield-equity shock correlation (mild flight-to-quality)'},
+  CRED_VOL:      {v:0.0015,cls:'EMPIRICALLY_ESTIMATED', note:'monthly credit-spread-change sd (15bp)'},
+  CRED_RHO:      {v:-0.6,  cls:'EMPIRICALLY_ESTIMATED', note:'spreads widen when equities fall'},
+  STRESS_AMP:    {v:1.5,   cls:'STYLISED_PROXY',        note:'FX/credit loading amplification in months where US < −6%'},
+  IDIO_DIVO:     {v:0.18,  cls:'STYLISED_PROXY',        note:'idiosyncratic vol of representative DIVO/IDVO names (annualized)'},
+  IDIO_QDVO:     {v:0.30,  cls:'STYLISED_PROXY',        note:'idiosyncratic vol of representative growth names'},
+  N_NAMES:       {v:5,     cls:'STYLISED_PROXY',        note:'pseudo-names per single-stock overlay basket'},
+  ASX_DIVY:      {v:0.04,  cls:'EMPIRICALLY_ESTIMATED', note:'ASX-20 dividend yield (price-return basis for XJO options)'},
+  PREF_PFFR:     {v:'dur 6, sprDur 6, β .35, carry 5.5%, fin (rf+1%)·25%, resid 5%',cls:'CALIBRATED',note:'carry cut so total return ≈4%/yr against a ~9% payout (heavy NAV erosion), reflecting weak levered-REIT-preferred history and severe 2022 drawdown. Excluded from the optimised fund; high rate/credit/liquidity risk for the return.'},
+  PREF_PFXF:     {v:'dur 6, sprDur 5, β .12, carry 5.3%, resid 4%',cls:'CALIBRATED',note:'carry cut so total return ≈4.5%/yr (yield ~6.5% → NAV erodes ~2%/yr), matching PFXF 5y 3.2% / 10y 4.72% NAV total return. Income sleeve, NOT growth or defined downside protection.'},
+  SDIV_DRAG:     {v:0.015, cls:'UNVERIFIED_ASSUMPTION', note:'annual value-trap drag; historical, sensitivity assumption'},
+  YMAX_FRANK:    {v:0.016, cls:'EMPIRICALLY_ESTIMATED', note:'grossed-up minus cash published rate'},
+  ALL_DIST_RATES:{v:'per strategy',cls:'TRAILING/CURRENT_ANNUALISED',note:'published rates PROJECTED FORWARD — persistence not guaranteed'},
+  ALL_BETAS:     {v:'per strategy',cls:'STYLISED_PROXY',note:'loadings stylised, not estimated from fund NAV regressions (shrinkage: alpha=0)'},
+};
+
+/* ---------- math ---------- */
+function erf(x){const s=x<0?-1:1;x=Math.abs(x);const t=1/(1+0.3275911*x);
+  const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+  return s*y;}
+const ncdf=x=>0.5*(1+erf(x/Math.SQRT2));
+function bsCall(S,K,v,T,rf,q){rf=rf||0;q=q||0;
+  if(v<=0||T<=0)return Math.max(S-K,0);
+  const sq=v*Math.sqrt(T),d1=(Math.log(S/K)+(rf-q+0.5*v*v)*T)/sq,d2=d1-sq;
+  return S*Math.exp(-q*T)*ncdf(d1)-K*Math.exp(-rf*T)*ncdf(d2);}
+function bsPut(S,K,v,T,rf,q){rf=rf||0;q=q||0;
+  return bsCall(S,K,v,T,rf,q)-S*Math.exp(-q*T)+K*Math.exp(-rf*T);}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+function normals(n,rng){const z=[];
+  for(let i=0;i<n;i+=2){const u1=Math.max(rng(),1e-9),u2=rng(),m=Math.sqrt(-2*Math.log(u1));
+    z.push(m*Math.cos(2*Math.PI*u2)); if(z.length<n) z.push(m*Math.sin(2*Math.PI*u2));}
+  return z;}
+function hashSeed(seed,str){let h=seed>>>0;
+  for(let i=0;i<str.length;i++)h=Math.imul(h^str.charCodeAt(i),2654435761);
+  return h>>>0;}
+
+/* ---------- IV surface, costs, solver ---------- */
+function ivSurface(K,T,p,base){
+  const F=Math.exp((p.rf-p.divY)*T), m=Math.log(F/K);
+  const iv=(base!==undefined?base:p.vol+p.ivp)
+    + PARAMS.TERM_SLOPE.v*(Math.sqrt(12*T)-1)
+    + p.dskew*Math.max(m,0)
+    + p.uskew*Math.max(-m,0);
+  return Math.max(iv,0.01);
+}
+const priceCall=(K,T,p,base)=>bsCall(1,K,ivSurface(K,T,p,base),T,p.rf,p.divY);
+const pricePut =(K,T,p,base)=>bsPut (1,K,ivSurface(K,T,p,base),T,p.rf,p.divY);
+const sellNet=(prem,p)=>prem*(1-p.tc);
+const buyNet =(prem,p)=>prem*(1+p.tc);
+function strikeForPutPremium(target,T,p){
+  if(pricePut(1,T,p)>=target)return 1;
+  let lo=1,hi=1.3;
+  if(pricePut(hi,T,p)<target)return hi;
+  for(let i=0;i<60;i++){const mid=(lo+hi)/2;
+    (pricePut(mid,T,p)<target)?lo=mid:hi=mid;}
+  return (lo+hi)/2;
+}
+
+/* ---------- drift + conditioned path ---------- */
+function monthlyLogDrift(mu,vol,mode){
+  return (mode==='arithmetic'? Math.log(1+mu)-0.5*vol*vol : Math.log(1+mu))/12;
+}
+function genPath(annual,vol,years,seed,mode){
+  const n=years*12, z=normals(n,mulberry32(seed));
+  const mean=z.reduce((a,b)=>a+b,0)/n;
+  let adj;
+  if(mode==='legacy'){
+    const sd=Math.sqrt(z.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n)||1;
+    adj=z.map(zi=>(zi-mean)/sd);
+  }else adj=z.map(zi=>zi-mean);
+  const L=Math.log(1+annual)*years, s=vol/Math.sqrt(12);
+  return adj.map(zi=>Math.exp(L/n+s*zi)-1);
+}
+
+/* ---------- correlated factor world (brief Phase F) ----------
+   All equity factors share the US log drift (STYLISED — no relative view).
+   fx = return of USD measured in AUD (positive → AUD depreciated).        */
+function genWorld(p,seed){
+  const n=p.yrs*12;
+  const us=genPath(p.ret,p.vol,p.yrs,seed,p.pathMode);
+  return worldFromUs(us,p,seed);
+}
+function worldFromUs(us,p,seed,det){
+  const n=us.length;
+  const Ldn=Math.log(1+p.ret)/12, s=Math.max(p.vol/Math.sqrt(12),1e-9);
+  const qm=Math.pow(1+p.divY,1/12)-1, qmA=Math.pow(1+PARAMS.ASX_DIVY.v,1/12)-1;
+  const rng=mulberry32(hashSeed(seed,'factors'));
+  const Z=()=>det?new Array(n).fill(0):normals(n,rng);   // det → zero factor residuals (central scenario)
+  const zI=Z(),zE=Z(),zA=Z(),zF=Z(),zY=Z(),zS=Z();
+  const w={n,seed,us,usP:us.map(r=>(1+r)/(1+qm)-1),
+           intl:[],em:[],asx:[],asxP:[],fx:[],dY:[],dS:[],zm:[],_z:{}};
+  const specs=[['intl',PARAMS.RHO_INTL.v,0.95,zI],['em',PARAMS.RHO_EM.v,1.25,zE],['asx',PARAMS.RHO_ASX.v,0.95,zA]];
+  for(let i=0;i<n;i++){
+    const zm=(Math.log(1+us[i])-Ldn)/s;
+    w.zm.push(zm);
+    for(const [k,rho,ratio,z] of specs)
+      w[k].push(Math.exp(Ldn+ratio*s*(rho*zm+Math.sqrt(1-rho*rho)*z[i]))-1);
+    w.asxP.push((1+w.asx[i])/(1+qmA)-1);
+    const amp=us[i]<-0.06?PARAMS.STRESS_AMP.v:1;
+    w.fx.push(-PARAMS.FX_BETA.v*(-1)*amp*s*zm + PARAMS.FX_RESID.v/Math.sqrt(12)*zF[i]); // = FX_BETA·amp·(s·zm) with sign: equities down → USD up in AUD
+    w.dY.push(PARAMS.RATE_VOL.v*(PARAMS.RATE_RHO.v*zm+Math.sqrt(1-PARAMS.RATE_RHO.v**2)*zY[i]));
+    w.dS.push(PARAMS.CRED_VOL.v*(PARAMS.CRED_RHO.v*amp*zm+Math.sqrt(1-PARAMS.CRED_RHO.v**2)*zS[i]));
+  }
+  w.zres=id=>{if(det)return new Array(n).fill(0);if(!w._z[id])w._z[id]=normals(n,mulberry32(hashSeed(seed,'z:'+id)));return w._z[id];};
+  return w;
+}
+
+/* ---------- scenario world builders ----------
+   central : smooth monthly compounding, deterministic factors — pure structure
+   MC      : UNconditioned GBM (terminal is stochastic); ret = median outcome  */
+function genCentralWorld(p){
+  const n=p.yrs*12, rm=Math.pow(1+p.ret,1/12)-1;
+  return worldFromUs(new Array(n).fill(rm), p, 1, true);
+}
+function genPathMC(annual,vol,years,rng){
+  const n=years*12, z=normals(n,rng);
+  const Ldn=Math.log(1+annual)/12, s=vol/Math.sqrt(12);
+  return z.map(zi=>Math.exp(Ldn+s*zi)-1);        // no de-meaning: terminal varies path to path
+}
+function genWorldMC(p,seed){
+  const us=genPathMC(p.ret,p.vol,p.yrs,mulberry32(seed>>>0));
+  return worldFromUs(us,p,seed,false);
+}
+
+/* ---------- engine (three views, currency-aware) ---------- */
+function engine(world,inv,fee,p,stepFn,fixedPayout,ccy){
+  let nav=inv, reinv=inv, cash=0;
+  const navs=[nav],reinvs=[reinv],cashes=[0],incomes=[];
+  let cum=0,cut=false;
+  let fixedDist=fixedPayout?inv*fixedPayout/12:0;
+  for(let i=0;i<world.n;i++){
+    if(fixedPayout&&i>0&&i%12===0){const nd=nav*fixedPayout/12;if(nd<fixedDist*0.999)cut=true;fixedDist=nd;}
+    const o=stepFn(world,i,p);
+    let gr=o.gr;
+    if(p.ccy==='AUD'&&(ccy||'USD')==='USD')gr=(1+gr)*(1+world.fx[i])-1;       // USD asset in AUD terms
+    else if(p.ccy==='USD'&&ccy==='AUD')gr=(1+gr)/(1+world.fx[i])-1;           // AUD asset in USD terms
+    const g=(1+gr)*(1-fee/12);
+    nav*=g; reinv*=g;
+    let dist=fixedPayout?Math.min(fixedDist,nav):nav*(o.distFrac||0);
+    nav-=dist; cum+=dist;
+    cash=cash*(1+p.rf/12)+dist;
+    incomes.push(dist); navs.push(nav); reinvs.push(reinv); cashes.push(cash);
+  }
+  return {navs,reinvs,cashes,incomes,cum,nav,cut};
+}
+
+/* ---------- building blocks ---------- */
+// excess-return equity book: rf + β(factor − rf) + residual, alpha = 0 (shrunk)
+function book(w,i,p,factorArr,beta,residSig,zArr){
+  return p.rf/12 + beta*(factorArr[i]-p.rf/12) + residSig/Math.sqrt(12)*zArr[i];
+}
+// single-name covered-call overlay: premium at NAME vol, settled on simulated NAME returns
+function nameOverlay(w,i,p,id,bookRet,beta,idio,otm,coverage){
+  const nameVol=Math.sqrt((beta*p.vol)**2+idio*idio);
+  const prem=sellNet(priceCall(1+otm,1/12,p,nameVol+p.ivp),p);
+  const qm=Math.pow(1+p.divY,1/12)-1;
+  let pay=0;
+  for(let j=0;j<PARAMS.N_NAMES.v;j++){
+    const rn=bookRet+idio/Math.sqrt(12)*w.zres(id+'#'+j)[i];
+    pay+=Math.max((1+rn)/(1+qm)-1-otm,0);
+  }
+  return coverage*(prem-pay/PARAMS.N_NAMES.v);
+}
+// preferred sleeve: carry − duration·Δy − spreadDur·Δs + β·equity excess + residual − financing
+function prefRet(w,i,p,id,cfg){
+  return cfg.carry/12
+    - cfg.dur*w.dY[i]
+    - cfg.sdur*w.dS[i]
+    + cfg.beta*(w.us[i]-p.rf/12) + p.rf/12*cfg.beta0
+    + cfg.resid/Math.sqrt(12)*w.zres(id)[i]
+    - (cfg.fin?cfg.fin(p)/12:0);
+}
+
+/* ---------- strategies ---------- */
+const STRATS=[
+ {id:'spx', name:'S&P 500 (no payout)', color:'#c9a7f5', roc:0, ccy:'USD',
+  quality:'H', optEligible:true, distClass:'MODEL_WITHDRAWAL',
+  sim:(w,inv,p)=>engine(w,inv,0.0005,p,(w,i)=>({gr:w.us[i],distFrac:0}),null,'USD')},
+ {id:'spxwd', name:'S&P 500 + 10% withdrawals', color:'#9e86c8', roc:'sale', ccy:'USD',
+  quality:'H', optEligible:true, distClass:'MODEL_WITHDRAWAL',
+  sim:(w,inv,p)=>engine(w,inv,0.0005,p,(w,i)=>({gr:w.us[i]}),p.tDist,'USD')},
+ {id:'tpay', name:'TPAY-like managed 10% payout', color:'#f78166', roc:1.0, ccy:'USD',
+  quality:'M', optEligible:true, reason:'FLEX replication assumed frictionless', distClass:'FIXED_DOLLAR_SCHEDULE',
+  sim:(w,inv,p)=>engine(w,inv,0.0049,p,(w,i)=>({gr:w.us[i]}),p.tDist,'USD')},
+ {id:'gpix', name:'GPIX-like dynamic partial buy-write', color:'#58a6ff', roc:0.9, ccy:'USD',
+  quality:'L', optEligible:true, reason:'coverage rule inferred, not documented methodology', distClass:'MANAGER_TARGET',
+  sim:(w,inv,p)=>engine(w,inv,0.0029,p,(w,i,p)=>{
+    const otm=0.015, prem=sellNet(priceCall(1+otm,1/12,p),p);
+    const cov=Math.min(0.75,Math.max(0.25,(p.gDist/12)/Math.max(prem,1e-6)));
+    return {gr:w.us[i]-cov*Math.max(w.usP[i]-otm,0)+cov*prem, distFrac:p.gDist/12};},null,'USD')},
+ {id:'xylg', name:'XYLG-like 50% ATM buy-write', color:'#79c0ff', roc:0.5, ccy:'USD',
+  quality:'M', optEligible:true, distClass:'INDEX_METHODOLOGY_RULE',
+  sim:(w,inv,p)=>engine(w,inv,0.006,p,(w,i,p)=>{
+    const prem=sellNet(priceCall(1,1/12,p),p), cov=0.5;
+    return {gr:w.us[i]-cov*Math.max(w.usP[i],0)+cov*prem, distFrac:Math.min(0.5*cov*prem,0.01)};},null,'USD')},
+ {id:'bw', name:'Full buy-write (BXM-style)', color:'#1f6feb', roc:0.5, ccy:'USD',
+  quality:'M', optEligible:true, distClass:'INDEX_METHODOLOGY_RULE',
+  sim:(w,inv,p)=>engine(w,inv,0.006,p,(w,i,p)=>{
+    const prem=sellNet(priceCall(1,1/12,p),p);
+    return {gr:w.us[i]-Math.max(w.usP[i],0)+prem, distFrac:Math.min(0.5*prem,0.01)};},null,'USD')},
+ {id:'xdte', name:'XDTE-like 0DTE placeholder', color:'#ff9bce', roc:1.0, ccy:'USD',
+  quality:'D', optEligible:false, reason:'daily strategy modelled monthly; gap cost UNVERIFIED', distClass:'TRAILING_HISTORICAL_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0097,p,(w,i,p)=>{
+    const f=PARAMS.XDTE_OVERNIGHT.v, intr=(1-f)*w.usP[i];
+    const dPrem=sellNet(priceCall(1.001,1/252,p),p);
+    const dFair=bsCall(1,1.001,p.vol+PARAMS.XDTE_GAP_COST.v,1/252,p.rf,p.divY);
+    return {gr:f*w.us[i]+Math.min(intr,PARAMS.XDTE_CAP.v)+21*(dPrem-dFair), distFrac:0.18/12};},null,'USD')},
+ {id:'spyi', name:'SPYI-like fixed call spread', color:'#ffa657', roc:0.9, ccy:'USD',
+  quality:'L', optEligible:true, reason:'fixed spread vs active fund management', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0068,p,(w,i,p)=>{
+    const k1=0.005,k2=0.04;
+    const net=sellNet(priceCall(1+k1,1/12,p),p)-buyNet(priceCall(1+k2,1/12,p),p);
+    return {gr:w.us[i]-(Math.max(w.usP[i]-k1,0)-Math.max(w.usP[i]-k2,0))+net, distFrac:0.12/12};},null,'USD')},
+ {id:'wtpi', name:'WTPI-like put-write', color:'#d29922', roc:0.1, ccy:'USD',
+  quality:'L', optEligible:true, reason:'residual CALIBRATED drag (in-sample)', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0044,p,(w,i,p)=>{
+    const T=1/12, K=strikeForPutPremium(PARAMS.WTPI_TARGET.v,T,p);
+    const prem=sellNet(pricePut(K,T,p),p);
+    return {gr:p.rf/12+prem-Math.max(K-(1+w.usP[i]),0)-PARAMS.WTPI_RESID.v, distFrac:0.11/12};},null,'USD')},
+ {id:'spyh', name:'SPYH-like monthly put-spread collar', color:'#3fb950', roc:0.9, ccy:'USD',
+  quality:'M', optEligible:true, reason:'uniform monthly reset vs laddered fund', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0068,p,(w,i,p)=>{
+    const cap=p.sCap, pk=1-p.sPut, pf=1-p.sPut-p.sWid, g=1+w.usP[i];
+    const credit=sellNet(priceCall(1+cap,1/12,p),p)+sellNet(pricePut(pf,1/12,p),p)-buyNet(pricePut(pk,1/12,p),p);
+    return {gr:w.us[i]-Math.max(g-(1+cap),0)+Math.max(pk-g,0)-Math.max(pf-g,0)+credit, distFrac:0.079/12};},null,'USD')},
+ {id:'divo', name:'DIVO-like div equity + tactical CC', color:'#56d4dd', roc:0.6, ccy:'USD',
+  quality:'L', optEligible:true, reason:'loadings stylised, not estimated; dispersion premium now emerges from simulated names', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0056,p,(w,i,p)=>{
+    const b=book(w,i,p,w.us,0.85,0.04,w.zres('divo'));
+    return {gr:b+nameOverlay(w,i,p,'divo',b,0.85,PARAMS.IDIO_DIVO.v,0.02,0.2), distFrac:0.048/12};},null,'USD')},
+ {id:'diveq', name:'Pure dividend equity', color:'#7ee787', roc:0.0, ccy:'USD',
+  quality:'M', optEligible:true, distClass:'TRAILING_HISTORICAL_RATE',
+  sim:(w,inv,p)=>engine(w,inv,0.0006,p,(w,i,p)=>
+    ({gr:book(w,i,p,w.us,0.85,0.035,w.zres('diveq')), distFrac:0.035/12}),null,'USD')},
+ {id:'combo', name:'Custom combo (stylised sleeves)', color:'#f0f6fc', roc:0.65, frank:PARAMS.YMAX_FRANK.v, ccy:'mixed',
+  quality:'L', optEligible:true, reason:'all sleeves stylised; no rebalancing', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>{
+    const W=p.comboW||{divo:0.20,idvo:0.20,qdvo:0.15,spyh:0.15,ymax:0.30};
+    return aggregate(W,w,inv,p,'ymax');
+  }},
+ {id:'ebfund', name:'EB High Yield Global Income (stylised)', color:'#e6537a', roc:0.3, ccy:'mixed',
+  quality:'L', optEligible:true, reason:'preferred loadings stylised; no rebalancing', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>{
+    const W=p.ebW||{jepi:0.15,gpix:0.15,dvye:0.15,sdiv:0.15,pffr:0.20,pfxf:0.20};
+    return aggregate(W,w,inv,p,null);
+  }},
+ {id:'optfund', name:'★ Optimised income fund (constraint-compliant, static)', color:'#ffd166', roc:0.7, ccy:'mixed',
+  quality:'L', optEligible:true, reason:'MC-optimised low-beta static mix (1000 worlds, train/test); yield≥7.5%, beta≥0.55, PFXF≤15% (income sleeve only), PFFR excluded; preferreds recalibrated to realistic NAV total return; see Fund Optimisation Report', distClass:'CURRENT_ANNUALISED_RATE',
+  sim:(w,inv,p)=>{
+    const W=p.optW||{jepi:0.35,gpix:0.20,pfxf:0.15,tpay:0.10,qdvo:0.10,spyh:0.10};
+    return aggregate(W,w,inv,p,null);
+  }},
+];
+
+function aggregate(W,world,inv,p,frankId){
+  const n=world.n;
+  const navs=Array(n+1).fill(0),reinvs=Array(n+1).fill(0),cashes=Array(n+1).fill(0),incomes=Array(n).fill(0);
+  let cum=0,frankBase=null;
+  for(const [id,wt] of Object.entries(W)){
+    if(wt<=0)continue;
+    const r=COMP[id](world,inv*wt,p);
+    r.navs.forEach((v,i)=>navs[i]+=v); r.reinvs.forEach((v,i)=>reinvs[i]+=v);
+    r.cashes.forEach((v,i)=>cashes[i]+=v); r.incomes.forEach((v,i)=>incomes[i]+=v);
+    cum+=r.cum;
+    if(id===frankId)frankBase=r.navs;
+  }
+  return {navs,reinvs,cashes,incomes,cum,nav:navs[n],frankBase};
+}
+
+/* sleeves — published dist rates projected forward (warning shown) */
+const COMP={
+  divo:(w,inv,p)=>STRATS.find(s=>s.id==='divo').sim(w,inv,p),
+  spyh:(w,inv,p)=>STRATS.find(s=>s.id==='spyh').sim(w,inv,p),
+  gpix:(w,inv,p)=>STRATS.find(s=>s.id==='gpix').sim(w,inv,p),
+  diveq:(w,inv,p)=>STRATS.find(s=>s.id==='diveq').sim(w,inv,p),
+  tpay:(w,inv,p)=>STRATS.find(s=>s.id==='tpay').sim(w,inv,p),
+  idvo:(w,inv,p)=>engine(w,inv,0.0066,p,(w,i,p)=>{           // intl book + single-name CC
+    const b=book(w,i,p,w.intl,0.85,0.045,w.zres('idvo'));
+    return {gr:b+nameOverlay(w,i,p,'idvo',b,0.85,PARAMS.IDIO_DIVO.v,0.02,0.25), distFrac:0.0594/12};},null,'USD'),
+  qdvo:(w,inv,p)=>engine(w,inv,0.0056,p,(w,i,p)=>{           // growth book + rich-vol names
+    const b=book(w,i,p,w.us,1.15,0.06,w.zres('qdvo'));
+    return {gr:b+nameOverlay(w,i,p,'qdvo',b,1.15,PARAMS.IDIO_QDVO.v,0.025,0.25), distFrac:0.1069/12};},null,'USD'),
+  ymax:(w,inv,p)=>engine(w,inv,0.0059,p,(w,i,p)=>{           // ASX-20 buy-write on ASX factor (AUD asset)
+    const b=book(w,i,p,w.asx,1.0,0.03,w.zres('ymax'));
+    const cov=0.85, otm=0.03;
+    const prem=sellNet(priceCall(1+otm,1/12,p,0.95*p.vol+p.ivp),p);
+    return {gr:b-cov*Math.max(w.asxP[i]-otm,0)+cov*prem, distFrac:0.088/12};},null,'AUD'),
+  jepi:(w,inv,p)=>engine(w,inv,0.0035,p,(w,i,p)=>{           // defensive book + index-priced ELN calls (uplift removed)
+    const b=book(w,i,p,w.us,0.7,0.035,w.zres('jepi'));
+    const prem=sellNet(priceCall(1.02,1/12,p),p);
+    return {gr:b-0.85*Math.max(w.usP[i]-0.02,0)+0.85*prem, distFrac:0.082/12};},null,'USD'),
+  dvye:(w,inv,p)=>engine(w,inv,0.0050,p,(w,i,p)=>
+    ({gr:book(w,i,p,w.em,0.95,0.05,w.zres('dvye')), distFrac:0.055/12}),null,'USD'),
+  sdiv:(w,inv,p)=>engine(w,inv,0.0058,p,(w,i,p)=>
+    ({gr:book(w,i,p,w.intl,0.9,0.06,w.zres('sdiv'))-PARAMS.SDIV_DRAG.v/12, distFrac:0.09/12}),null,'USD'),
+  pffr:(w,inv,p)=>engine(w,inv,0.0045,p,(w,i,p)=>
+    ({gr:prefRet(w,i,p,'pffr',{carry:0.055,dur:6,sdur:6,beta:0.35,beta0:0,resid:0.05,fin:p=>(p.rf+0.01)*0.25}), distFrac:0.093/12}),null,'USD'),
+  pfxf:(w,inv,p)=>engine(w,inv,0.0041,p,(w,i,p)=>
+    ({gr:prefRet(w,i,p,'pfxf',{carry:0.053,dur:6,sdur:5,beta:0.12,beta0:0,resid:0.04}), distFrac:0.065/12}),null,'USD'),
+};
+
+/* ---------- illustrative Australian tax proxy ---------- */
+function ausTax(res,inv,m,rocPct,frank){
+  let base=inv,cum=0;const atInc=[];
+  res.incomes.forEach((d,i)=>{
+    const disc=(i>=12)?0.5:1;let net;
+    if(rocPct==='sale'){
+      const navPre=res.navs[i+1]+d;
+      const frac=navPre>0?d/navPre:0, basisSold=base*frac;
+      const gain=Math.max(d-basisSold,0);
+      net=d-gain*disc*m; base-=basisSold;
+    }else{
+      const roc=d*rocPct, inc=d-roc;
+      let netRoc=roc;
+      if(roc<=base){base-=roc;}
+      else{const gain=roc-base;base=0;netRoc=roc-gain*disc*m;}
+      net=inc*(1-Math.max(m,PARAMS.US_WHT.v))+netRoc;
+    }
+    if(frank)net+=(res.frankBase?res.frankBase[i+1]:res.navs[i+1])*frank/12*(1-m);
+    atInc.push(net);cum+=net;
+  });
+  const disc=(res.incomes.length>=12)?0.5:1;
+  const cgt=Math.max(res.nav-base,0)*disc*m;
+  return {...res,incomes:atInc,cum,cgt};
+}
+
+/* ---------- metrics ---------- */
+function maxDD(series){let peak=series[0],dd=0;
+  for(const v of series){peak=Math.max(peak,v);dd=Math.max(dd,(peak-v)/peak);}return dd;}
+function monthlyReturns(series){const rs=[];
+  for(let i=1;i<series.length;i++)rs.push(series[i]/series[i-1]-1);return rs;}
+function annVol(series){const rs=monthlyReturns(series);
+  const m=rs.reduce((a,b)=>a+b,0)/rs.length;
+  return Math.sqrt(rs.reduce((a,b)=>a+(b-m)**2,0)/rs.length*12);}
+function sortinoReinv(series){const rs=monthlyReturns(series);
+  const mean=rs.reduce((a,b)=>a+b,0)/rs.length;
+  const dd=Math.sqrt(rs.reduce((a,r)=>a+Math.min(r,0)**2,0)/rs.length);
+  if(dd<1e-9)return mean>0?Infinity:0;
+  return (mean*12)/(dd*Math.sqrt(12));}
+const corr=(a,b)=>{const n=a.length,ma=a.reduce((x,y)=>x+y,0)/n,mb=b.reduce((x,y)=>x+y,0)/n;
+  let sxy=0,sxx=0,syy=0;for(let i=0;i<n;i++){sxy+=(a[i]-ma)*(b[i]-mb);sxx+=(a[i]-ma)**2;syy+=(b[i]-mb)**2;}
+  return sxy/Math.sqrt(sxx*syy);};
+// market beta on REINVESTED monthly returns vs the US equity factor.
+// Computed on the reinvested series so a self-liquidating cash pile can't
+// mechanically depress beta (the core critique on payout-driven risk metrics).
+function betaReinv(series,mkt){
+  const rs=monthlyReturns(series), n=Math.min(rs.length,mkt.length);
+  if(n<2)return NaN;
+  const a=rs.slice(0,n), b=mkt.slice(0,n);
+  const ma=a.reduce((x,y)=>x+y,0)/n, mb=b.reduce((x,y)=>x+y,0)/n;
+  let cov=0,varb=0;
+  for(let i=0;i<n;i++){cov+=(a[i]-ma)*(b[i]-mb);varb+=(b[i]-mb)**2;}
+  return varb>1e-12?cov/varb:NaN;}
+
+/* ---------- self-tests ---------- */
+function runSelfTests(){
+  const T=[];const ok=(name,pass)=>T.push({name,pass});
+  let maxErr=0;
+  for(const S of [0.8,1,1.2])for(const K of [0.85,1,1.15])for(const v of [0.1,0.3,0.6])
+  for(const t of [1/252,1/12,0.5])for(const rf of [0,0.04])for(const q of [0,0.02]){
+    const e=Math.abs(bsCall(S,K,v,t,rf,q)-bsPut(S,K,v,t,rf,q)-(S*Math.exp(-q*t)-K*Math.exp(-rf*t)));
+    maxErr=Math.max(maxErr,e);}
+  ok('put-call parity < 1e-8·S',maxErr<1e-8);
+  ok('call increasing in S',bsCall(1.05,1,0.2,1/12,0.04,0.013)>bsCall(1,1,0.2,1/12,0.04,0.013));
+  const ps={vol:0.2,ivp:0.02,rf:0.04,divY:0.013,dskew:0.5,uskew:-0.2,tc:0.02,ret:0.07,yrs:3,pathMode:'cond',ccy:'USD',
+            gDist:.08,tDist:.10,sCap:.013,sPut:.015,sWid:.055};
+  const ps0={...ps,dskew:0,uskew:0};
+  ok('downside skew raises OTM put price',pricePut(0.95,1/12,ps)>pricePut(0.95,1/12,ps0));
+  ok('downside skew does not raise OTM call',priceCall(1.05,1/12,ps)<=priceCall(1.05,1/12,ps0)+1e-12);
+  ok('IV floor positive',ivSurface(2.5,1/12,ps)>=0.01);
+  const psLow={...ps,vol:0.10}, Ks=strikeForPutPremium(0.025,1/12,psLow);
+  ok('WTPI solver hits target (ITM)',Ks>1&&Math.abs(pricePut(Ks,1/12,psLow)-0.025)<1e-6);
+  ok('WTPI solver ATM when rich',strikeForPutPremium(0.025,1/12,{...ps,vol:0.45})===1);
+  ok('vertical spread bounds with skew',(()=>{const s=priceCall(1.005,1/12,ps)-priceCall(1.04,1/12,ps);
+    return s>=0&&s<=(1.04-1.005)*Math.exp(-0.04/12);})());
+  // drift modes
+  const rng=mulberry32(11);const N=20000;
+  let sumA=0;const medM=[];const dA=monthlyLogDrift(0.07,0.25,'arithmetic'),dM=monthlyLogDrift(0.07,0.25,'median');
+  for(let k=0;k<N;k++){const z=normals(12,rng);let wa=0,wm=0;
+    for(const zi of z){wa+=dA+0.25/Math.sqrt(12)*zi;wm+=dM+0.25/Math.sqrt(12)*zi;}
+    sumA+=Math.exp(wa);medM.push(Math.exp(wm));}
+  medM.sort((a,b)=>a-b);
+  ok('arithmetic drift: mean ≈ 1.07',Math.abs(sumA/N-1.07)<0.01);
+  ok('median drift: median ≈ 1.07',Math.abs(medM[N/2]-1.07)<0.01);
+  // conditioned path
+  const t1=genPath(0.08,0.2,3,1,'cond').reduce((a,r)=>a*(1+r),1);
+  ok('conditioned terminal exact',Math.abs(t1-Math.pow(1.08,3))<1e-9);
+  // world/factor tests
+  const pw={...ps,ret:0.0,vol:0.20,yrs:8};
+  const w8=genWorld(pw,77);
+  ok('US–intl correlation > 0.6',corr(w8.us,w8.intl)>0.6);
+  ok('credit spreads widen when equities fall',corr(w8.us,w8.dS)<-0.2);
+  const crashFx=[],crash=[];
+  for(let i=0;i<w8.n;i++)if(w8.us[i]<-0.06){crashFx.push(w8.fx[i]);crash.push(i);}
+  ok('USD (in AUD) gains on average in crash months',crash.length===0||crashFx.reduce((a,b)=>a+b,0)/crashFx.length>0);
+  ok('intl has residual risk (not scaled US)',(()=>{
+    const sc=w8.intl.map((v,i)=>v-0.95*0.85*w8.us[i]);      // strip the systematic US loading
+    const m=sc.reduce((a,b)=>a+b,0)/sc.length;
+    const sd=Math.sqrt(sc.reduce((a,b)=>a+(b-m)**2,0)/sc.length);
+    return sd>1e-4 && corr(w8.us,w8.intl)<0.999;            // genuine idiosyncratic residual remains
+  })());
+  // rate shock: flat equities, +30bp/mo yields → preferreds lose, index flat
+  const usFlat=Array(12).fill(0);
+  const wRate=worldFromUs(usFlat,{...ps,ret:0,vol:0.0001},5);
+  wRate.dY=Array(12).fill(0.003);wRate.dS=Array(12).fill(0);
+  for(const k in wRate._z)delete wRate._z[k];
+  const pf=COMP.pffr(wRate,10000,{...ps});
+  ok('rate shock hurts preferreds with flat equities',pf.reinvs.at(-1)/10000-1<-0.08);
+  // no artificial alpha: single-name overlay E[P&L]≈0 with IV=RV, no costs/skew
+  const pz={...ps,ivp:0,tc:0,dskew:0,uskew:0,rf:0,divY:0};
+  const wz=worldFromUs(Array(2400).fill(0),{...pz,ret:0,vol:0.0001},9);
+  let pnl=0;const nameVol=Math.sqrt(0+PARAMS.IDIO_DIVO.v**2);
+  for(let i=0;i<2400;i++)pnl+=nameOverlay(wz,i,pz,'t0',0,0,PARAMS.IDIO_DIVO.v,0.02,1.0);
+  const premRef=bsCall(1,1.02,nameVol,1/12,0,0);
+  ok('single-name option P&L ≈ 0 when IV=RV, no costs',Math.abs(pnl/2400)<0.15*premRef);
+  ok('dispersion premium emerges (name IV > index IV)',
+    priceCall(1.02,1/12,ps,Math.sqrt((0.85*ps.vol)**2+PARAMS.IDIO_DIVO.v**2)+ps.ivp)>priceCall(1.02,1/12,ps));
+  // engine invariants
+  const wE=genWorld({...ps,ret:0.05,vol:0.2,yrs:2,pathMode:'legacy'},7);
+  const e0=engine(wE,10000,0.001,ps,(w,i)=>({gr:w.us[i],distFrac:0}),null,'USD');
+  const e45=engine(wE,10000,0.001,ps,(w,i)=>({gr:w.us[i],distFrac:0.45/12}),null,'USD');
+  ok('reinvested wealth invariant to payout',Math.abs(e0.reinvs.at(-1)-e45.reinvs.at(-1))<1e-6);
+  // AUD mode changes USD strategy outcome
+  const eAud=engine(wE,10000,0.001,{...ps,ccy:'AUD'},(w,i)=>({gr:w.us[i],distFrac:0}),null,'USD');
+  ok('AUD reporting applies FX to USD assets',Math.abs(eAud.reinvs.at(-1)-e0.reinvs.at(-1))>1);
+  // NaN sweep
+  const wX=genWorld({...ps,ret:-0.55,vol:0.55,yrs:3},3);
+  let clean=true;
+  for(const s of STRATS){const r=s.sim(wX,10000,{...ps,vol:0.55});
+    if(!isFinite(r.nav)||!isFinite(r.cum)||r.nav<0)clean=false;}
+  ok('no NaN/negative NAV on extreme world',clean);
+  return T;
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+const fmt$=v=>'$'+Math.round(v).toLocaleString();
+const fmtP=v=>(v>=0?'+':'')+(v*100).toFixed(1)+'%';
+let seed=42, navChart, incChart;
+const sel={}; STRATS.forEach(s=>sel[s.id]=true);
+
+const tests=runSelfTests();
+const passed=tests.filter(t=>t.pass).length;
+$('verBadge').textContent=MODEL_VERSION;
+$('testBadge').textContent=`self-tests ${passed}/${tests.length}`;
+$('testBadge').className='badge '+(passed===tests.length?'ok':'bad');
+if(passed<tests.length)console.error('FAILED TESTS:',tests.filter(t=>!t.pass));
+
+$('warnbox').innerHTML='⚠ <b>Active model warnings:</b> '+
+  'distribution rates are published rates projected forward · '+
+  'factor loadings and residual vols are STYLISED, not estimated from fund NAV regressions (alpha shrunk to zero) · '+
+  'all equity factors share the US drift — no relative-return view · '+
+  'WTPI-like retains an in-sample CALIBRATED residual · '+
+  'XDTE-like remains directional-only (no daily engine) · '+
+  'tax output is an illustrative proxy; FX not yet applied inside tax (D7) · '+
+  'no rebalancing in portfolio aggregation.';
+
+const tog=$('stratToggles');
+STRATS.forEach(s=>{
+  const l=document.createElement('label');
+  l.innerHTML=`<input type="checkbox" checked data-id="${s.id}"><span class="dot" style="background:${s.color}"></span>${s.name}`;
+  l.querySelector('input').addEventListener('change',e=>{sel[s.id]=e.target.checked;run();});
+  tog.appendChild(l);
+});
+// Monte Carlo target dropdown (single-portfolio distribution)
+const mtSel=$('mcTarget');
+STRATS.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.name;mtSel.appendChild(o);});
+mtSel.value='optfund';
+const setAll=v=>{STRATS.forEach(s=>sel[s.id]=v);
+  tog.querySelectorAll('input').forEach(el=>el.checked=v);run();};
+$('selAll').addEventListener('click',()=>setAll(true));
+$('selNone').addEventListener('click',()=>setAll(false));
+
+$('provTbl').innerHTML='<tr><th>Parameter</th><th>Value</th><th>Classification</th><th>Note</th></tr>'+
+  Object.entries(PARAMS).map(([k,v])=>`<tr><td>${k}</td><td>${v.v}</td><td>${v.cls}</td><td style="text-align:left">${v.note}</td></tr>`).join('');
+
+$('modelNote').innerHTML='<b>Version '+MODEL_VERSION+'.</b> Correlated factor world: intl/EM/ASX equity, AUD/USD (crisis beta), Treasury yields, credit spreads — all sharing the US regime with residual randomness. Strategy returns: cash + β·(factor − cash) + residual, alpha = 0. Single-name covered-call sleeves price premium at name-level vol and settle against simulated name returns (dispersion premium emerges; no free IV uplift). Preferreds carry duration and credit-spread exposure — try a rate-shock intuition: even with equities flat, preferred sleeves can lose. Options settle on price returns; risk metrics use reinvested wealth. <b>Three scenarios:</b> Central (smooth monthly compounding — structural, shared index path, no sequencing); Sequence stress (re-roll timing, same terminal CAGR — exposes path-dependence of option books); Outcome distribution (Monte Carlo, return treated as the median — unconditioned stochastic paths with percentile bands, the optimisation-relevant view). Baseline v0.9 preserved; full audit trail in "Code Audit Report - Deliverable 1.md".';
+
+function readParams(){return{
+  ret:+$('ret').value/100, vol:+$('vol').value/100, yrs:+$('yrs').value, inv:+$('inv').value,
+  gDist:+$('gDist').value/100, tDist:+$('tDist').value/100,
+  sCap:+$('sCap').value/100, sPut:+$('sPut').value/100, sWid:+$('sWid').value/100,
+  ivp:+$('ivp').value/100, rf:+$('rf').value/100, divY:+$('divY').value/100,
+  dskew:+$('dskew').value, uskew:+$('uskew').value, tc:+$('tc').value/100,
+  taxOn:$('taxOn').checked, marg:+$('marg').value/100,
+  view:$('view').value, pathMode:'cond', ccy:$('ccy').value,
+  scenario:$('scenario').value, mcN:+$('mcN').value, mcTarget:$('mcTarget').value};}
+
+function labels(p){
+  $('vRet').textContent=(p.ret>=0?'+':'')+(p.ret*100).toFixed(0)+'% / yr';
+  $('vVol').textContent=(p.vol*100).toFixed(0)+'%';
+  $('vYrs').textContent=p.yrs+(p.yrs>1?' years':' year');
+  $('vInv').textContent=fmt$(p.inv);
+  $('vM').textContent=(p.marg*100).toFixed(1)+'%';
+  $('vIvp').textContent='+'+(p.ivp*100).toFixed(1)+' pts';
+  $('vRf').textContent=(p.rf*100).toFixed(2)+'%';
+  $('vDy').textContent=(p.divY*100).toFixed(1)+'%';
+  $('vDsk').textContent=p.dskew.toFixed(2);
+  $('vUsk').textContent=p.uskew.toFixed(2);
+  $('vTc').textContent=(p.tc*100).toFixed(1)+'%';
+  $('vGd').textContent=(p.gDist*100).toFixed(1)+'%';
+  $('vTd').textContent=(p.tDist*100).toFixed(1)+'%';
+  $('vSc').textContent='+'+(p.sCap*100).toFixed(1)+'%';
+  $('vSp').textContent='−'+(p.sPut*100).toFixed(2)+'%';
+  $('vSw').textContent=(p.sWid*100).toFixed(1)+' pts';
+  $('vMcN').textContent=p.mcN.toLocaleString()+' paths';}
+
+const SCEN_NOTE={
+  central:'<b>Central scenario.</b> Every month receives the same return rₘ=(1+r)^(1/12)−1. Not a probable path — no exact stochastic path is likely. It isolates <b>pure structural behaviour</b>: upside surrendered, distribution decay of NAV, collar caps, fee compounding. All strategies share this one central index path. Risk metrics (vol/Sortino/DD) are degenerate here by construction.',
+  sequence:'<b>Sequence-risk scenario.</b> Every path reaches the selected terminal index CAGR; only the <b>timing</b> of gains and losses changes. Re-roll to resample. Option strategies are path-dependent: a decline-then-rally market can give a very different covered-call outcome from rally-then-decline at the same terminal.',
+  distribution:'<b>Outcome distribution (Monte Carlo).</b> The return input is treated as the <b>median</b> outcome; terminal wealth is stochastic (unconditioned paths). Bands show the range for the single selected portfolio only — this is the view that supports optimisation.'};
+
+const VIEW_TITLES={
+  reinv:'Reinvested wealth — distributions reinvested into the same strategy (risk-metric basis)',
+  consumed:'Income consumed — remaining capital (solid) vs cumulative consumed income (dashed), reported separately; NOT a risk basis',
+  cashacct:'NAV + cash account — distributions accumulate at the cash rate'};
+
+function run(){
+  const p=readParams();labels(p);
+  $('scenNote').innerHTML=SCEN_NOTE[p.scenario];
+  $('mcCtls').style.display=p.scenario==='distribution'?'block':'none';
+  $('reroll').style.display=p.scenario==='central'?'none':'block';
+  $('incBox').style.display=p.scenario==='distribution'?'none':'block';
+  if(p.scenario==='distribution'){runDistribution(p);return;}
+
+  const world=p.scenario==='central'?genCentralWorld(p):genWorld(p,seed);
+
+  const results=STRATS.filter(s=>sel[s.id]).map(s=>{
+    let r=s.sim(world,p.inv,p);
+    if(p.taxOn){
+      if(s.id==='spx'){
+        const disc=(world.n>=12)?0.5:1;
+        r={...r,cgt:Math.max(r.nav-p.inv,0)*disc*p.marg};
+      }else r={...ausTax(r,p.inv,p.marg,s.roc,s.frank||0),cut:r.cut,reinvs:r.reinvs,cashes:r.cashes};
+    }
+    return {s,r};
+  });
+
+  $('tblTitle').textContent=(p.scenario==='central'?'Central scenario (structural — vol/Sortino/DD degenerate)':'Sequence stress (one rerolled path)')+' — '+p.ccy+(p.taxOn?' — after AU tax proxy':'');
+  let html=`<tr><th>Strategy</th><th title="model quality">Q</th><th>TR (reinvested)</th><th>Vol</th><th title="market beta of reinvested monthly returns vs the US equity factor — measured on the reinvested series so accumulating cash cannot mechanically lower it">β (reinv)</th><th>Sortino</th><th title="PRIMARY drawdown: on distribution-adjusted (reinvested) wealth — comparable across payout policies">Max DD</th><th title="SECONDARY: capital-account (NAV) drawdown, includes payout decay — NOT comparable across payout policies">Cap-DD ⁽²⁾</th><th>Ending NAV${p.taxOn?' −CGT':''}</th><th>Income</th><th>Yield/yr</th></tr>`;
+  for(const {s,r} of results){
+    const cgt=r.cgt||0;
+    const trR=r.reinvs.at(-1)/p.inv-1;
+    const yld=r.cum/p.inv/p.yrs, so=sortinoReinv(r.reinvs);
+    const qtip={H:'high',M:'moderate',L:'low',D:'directional only — not optimisation-eligible'}[s.quality]+(s.reason?' — '+s.reason:'');
+    html+=`<tr><td><span class="dot" style="background:${s.color}"></span>${s.name}${r.cut?' <span class="warn">⚠cut</span>':''}</td>
+      <td><span class="q q${s.quality}" title="${qtip}">${s.quality}</span></td>
+      <td class="${trR>=0?'pos':'neg'}">${fmtP(trR)}</td>
+      <td>${(annVol(r.reinvs)*100).toFixed(1)}%</td>
+      <td>${(()=>{const bt=betaReinv(r.reinvs,world.us);return isFinite(bt)?bt.toFixed(2):'—';})()}</td>
+      <td class="${so>=0?'pos':'neg'}">${isFinite(so)?so.toFixed(2):'∞'}</td>
+      <td class="neg">−${(maxDD(r.reinvs)*100).toFixed(1)}%</td>
+      <td class="neg">−${(maxDD(r.navs)*100).toFixed(1)}%</td>
+      <td>${fmt$(r.nav-cgt)}</td>
+      <td>${fmt$(r.cum)}</td>
+      <td>${(yld*100).toFixed(1)}%</td></tr>`;
+  }
+  $('tbl').innerHTML=html;
+
+  const wealth=r=>{
+    if(p.view==='reinv')return r.reinvs;
+    let arr;
+    if(p.view==='cashacct')arr=r.navs.map((v,i)=>v+r.cashes[i]);
+    else{let c=0;arr=r.navs.map((v,i)=>v+(i>0?(c+=r.incomes[i-1]):0));}
+    if(r.cgt&&p.view!=='reinv'){arr=arr.slice();arr[arr.length-1]-=r.cgt;}
+    return arr;};
+  $('chart1Title').textContent=(p.scenario==='central'?'Graph 1 · Central scenario — ':'Graph 2 · Sequence stress — ')+VIEW_TITLES[p.view]+(p.taxOn&&p.view!=='reinv'?' — final point net of proxy CGT':'');
+
+  const mLab=Array.from({length:world.n},(_,i)=>((i+1)%12===0?((i+1)/12)+'y':'')); mLab.unshift('0');
+  const gridOpts={color:'#2d3646'};
+  const mkOpts=yfmt=>({responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{labels:{color:'#e6edf3',boxWidth:12,font:{size:11}}}},
+    scales:{x:{ticks:{color:'#8b98a9',autoSkip:false},grid:gridOpts},
+            y:{ticks:{color:'#8b98a9',callback:yfmt},grid:gridOpts}}});
+  const line=(s,d)=>({label:s.name,data:d,borderColor:s.color,backgroundColor:s.color,
+    pointRadius:0,borderWidth:1.8,tension:.2});
+
+  // Income-consumption view reports income and remaining capital SEPARATELY
+  // (per critique): remaining capital = NAV (solid), cumulative consumed income
+  // = dashed. Other views keep one combined wealth line per strategy.
+  let navDatasets;
+  if(p.view==='consumed'){
+    navDatasets=[];
+    for(const {s,r} of results){
+      const cap=r.navs.slice();
+      if(r.cgt)cap[cap.length-1]-=r.cgt;            // proxy CGT hits realised capital
+      let c=0; const incCum=r.navs.map((v,i)=>i>0?(c+=r.incomes[i-1]):0);
+      navDatasets.push({...line(s,cap),label:s.name+' — remaining capital'});
+      navDatasets.push({...line(s,incCum),label:s.name+' — cumulative income',
+        borderDash:[5,4],borderWidth:1.2});
+    }
+  }else{
+    navDatasets=results.map(({s,r})=>line(s,wealth(r)));
+  }
+
+  if(navChart)navChart.destroy();
+  navChart=new Chart($('navChart'),{type:'line',
+    data:{labels:mLab,datasets:navDatasets},
+    options:mkOpts(v=>'$'+v.toLocaleString())});
+
+  if(incChart)incChart.destroy();
+  incChart=new Chart($('incChart'),{type:'line',
+    data:{labels:mLab.slice(1),datasets:results.filter(({s})=>s.id!=='spx')
+      .map(({s,r})=>line(s,r.incomes.map(d=>d/p.inv*100)))},
+    options:mkOpts(v=>v.toFixed(2)+'%')});
+}
+
+/* ---------- Graph 3: Monte Carlo outcome distribution (single portfolio) ---------- */
+function pctl(sorted,q){const i=q*(sorted.length-1),lo=Math.floor(i),hi=Math.ceil(i);
+  return sorted[lo]+(sorted[hi]-sorted[lo])*(i-lo);}
+function runDistribution(p){
+  const s=STRATS.find(x=>x.id===p.mcTarget)||STRATS.find(x=>sel[x.id])||STRATS[0];
+  const N=p.mcN, n=p.yrs*12;
+  const wealth=new Array(N);
+  const termW=new Float64Array(N), portTR=new Float64Array(N), idxTR=new Float64Array(N);
+  const yoc=new Float64Array(N), navDD=new Float64Array(N);   // yield-on-cost & capital drawdown per path
+  for(let k=0;k<N;k++){
+    const world=genWorldMC(p, hashSeed(seed,'mc:'+k));
+    const r=s.sim(world,p.inv,p);
+    wealth[k]=r.reinvs; termW[k]=r.reinvs[n];
+    portTR[k]=r.reinvs[n]/p.inv-1;
+    idxTR[k]=world.us.reduce((a,x)=>a*(1+x),1)-1;
+    yoc[k]=r.cum/p.inv/p.yrs; navDD[k]=maxDD(r.navs);
+  }
+  const P5=[],P25=[],P50=[],P75=[],P95=[], col=new Float64Array(N);
+  for(let t=0;t<=n;t++){
+    for(let k=0;k<N;k++)col[k]=wealth[k][t];
+    const srt=Array.from(col).sort((a,b)=>a-b);
+    P5.push(pctl(srt,.05));P25.push(pctl(srt,.25));P50.push(pctl(srt,.5));P75.push(pctl(srt,.75));P95.push(pctl(srt,.95));
+  }
+  const tSort=Array.from(termW).sort((a,b)=>a-b);
+  const nTail=Math.max(1,Math.ceil(0.05*N));
+  const medTerm=pctl(tSort,.5);
+  const cvar5=tSort.slice(0,nTail).reduce((a,b)=>a+b,0)/nTail;
+  const pBelow=Array.from(termW).filter(w=>w<p.inv).length/N;
+  const posIdx=[],weak=[];
+  for(let k=0;k<N;k++){ if(idxTR[k]>0)posIdx.push(portTR[k]/idxTR[k]); if(idxTR[k]>=-0.05&&idxTR[k]<=0.05)weak.push(portTR[k]); }
+  const upCap=posIdx.length?pctl(posIdx.sort((a,b)=>a-b),.5):NaN;
+  const weakMed=weak.length?pctl(weak.sort((a,b)=>a-b),.5):NaN;
+  // yield confidence intervals — all worlds, and conditional on capital drawdown ≤ 30%
+  const yAll=Array.from(yoc).sort((a,b)=>a-b);
+  const yCond=[]; for(let k=0;k<N;k++) if(navDD[k]<=0.30) yCond.push(yoc[k]);
+  yCond.sort((a,b)=>a-b); const condFrac=yCond.length/N;
+
+  const mut=t=>`<span style="color:var(--muted)">${t}</span>`;
+  $('tblTitle').textContent='Outcome distribution — '+s.name+' — '+N.toLocaleString()+' paths — '+p.ccy;
+  const pc=x=>(x*100).toFixed(1)+'%';
+  $('tbl').innerHTML=`<tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>Median terminal wealth</td><td>${fmt$(medTerm)} ${mut('('+fmtP(medTerm/p.inv-1)+')')}</td></tr>
+    <tr><td>25th–75th percentile terminal</td><td>${fmt$(pctl(tSort,.25))} – ${fmt$(pctl(tSort,.75))}</td></tr>
+    <tr><td>5th–95th percentile terminal</td><td>${fmt$(pctl(tSort,.05))} – ${fmt$(pctl(tSort,.95))}</td></tr>
+    <tr><td>Terminal CVaR₅ (avg worst 5%)</td><td class="neg">${fmt$(cvar5)} ${mut('('+fmtP(cvar5/p.inv-1)+')')}</td></tr>
+    <tr><td>P(terminal wealth &lt; initial capital)</td><td class="${pBelow>0.5?'neg':''}">${pc(pBelow)}</td></tr>
+    <tr><td>Upside capture — median, benchmark &gt; 0</td><td>${isFinite(upCap)?pc(upCap):'—'}</td></tr>
+    <tr><td>Weak-market total return — benchmark −5%…+5%</td><td class="${weakMed<0?'neg':'pos'}">${isFinite(weakMed)?fmtP(weakMed):'—'} ${mut('(n='+weak.length+')')}</td></tr>
+    <tr><td colspan="2" style="padding-top:10px;color:var(--muted);border-bottom:1px solid var(--border)">Annual yield-on-cost — confidence intervals</td></tr>
+    <tr><td>Yield — all worlds (5–95%)</td><td>${pc(pctl(yAll,.05))} – ${pc(pctl(yAll,.95))} ${mut('med '+pc(pctl(yAll,.5)))}</td></tr>
+    <tr><td>Yield — drawdown ≤30% (5–95%)</td><td class="pos">${pc(pctl(yCond,.05))} – ${pc(pctl(yCond,.95))} ${mut('med '+pc(pctl(yCond,.5)))}</td></tr>
+    <tr><td>Yield — drawdown ≤30% (25–75%)</td><td>${pc(pctl(yCond,.25))} – ${pc(pctl(yCond,.75))} ${mut('('+(condFrac*100).toFixed(0)+'% of worlds qualify)')}</td></tr>`;
+
+  $('chart1Title').textContent='Graph 3 · Outcome distribution — '+s.name+': median reinvested wealth · 25–75 & 5–95 bands';
+  const mLab=Array.from({length:n},(_,i)=>((i+1)%12===0?((i+1)/12)+'y':'')); mLab.unshift('0');
+  const gridOpts={color:'#2d3646'};
+  const ds=[
+    {label:'p95',data:P95,borderColor:'transparent',pointRadius:0,fill:false,tension:.15},
+    {label:'5–95 band',data:P5,borderColor:'transparent',backgroundColor:'rgba(88,166,255,0.12)',pointRadius:0,fill:'-1',tension:.15},
+    {label:'p75',data:P75,borderColor:'transparent',pointRadius:0,fill:false,tension:.15},
+    {label:'25–75 band',data:P25,borderColor:'transparent',backgroundColor:'rgba(88,166,255,0.30)',pointRadius:0,fill:'-1',tension:.15},
+    {label:'Median',data:P50,borderColor:'#58a6ff',backgroundColor:'#58a6ff',pointRadius:0,borderWidth:2.2,fill:false,tension:.15},
+    {label:'Initial capital',data:new Array(n+1).fill(p.inv),borderColor:'#8b98a9',borderDash:[4,4],pointRadius:0,borderWidth:1,fill:false},
+  ];
+  if(navChart)navChart.destroy();
+  navChart=new Chart($('navChart'),{type:'line',data:{labels:mLab,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#e6edf3',boxWidth:12,font:{size:11},filter:it=>['Median','Initial capital'].includes(it.text)}}},
+      scales:{x:{ticks:{color:'#8b98a9',autoSkip:false},grid:gridOpts},
+              y:{ticks:{color:'#8b98a9',callback:v=>'$'+v.toLocaleString()},grid:gridOpts}}}});
+}
+
+document.querySelectorAll('input[type=range]').forEach(el=>el.addEventListener('input',run));
+['taxOn','view','ccy','scenario','mcTarget'].forEach(id=>$(id).addEventListener('change',run));
+$('reroll').addEventListener('click',()=>{seed=(seed*1664525+1013904223)>>>0;run();});
+run();
+</script>
+</body>
+</html>
